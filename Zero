@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZER0 MAYHEM</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+            touch-action: none;
+            user-select: none;
+        }
+        #gameCanvas {
+            display: block;
+            background-color: #000;
+        }
+        #hud {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-size: 24px;
+        }
+        #inventory {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            display: flex;
+            gap: 10px;
+        }
+        .slot {
+            width: 60px;
+            height: 60px;
+            border: 2px solid #0f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+        .selected {
+            border-color: #f0f;
+        }
+        #combineBtn {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            padding: 10px 20px;
+            background-color: #0f0;
+            color: #000;
+            border: none;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        #combineBtn:disabled {
+            background-color: #333;
+            color: #666;
+            cursor: not-allowed;
+        }
+        #tutorial {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            border: 2px solid #0f0;
+            padding: 20px;
+            max-width: 500px;
+            text-align: center;
+            z-index: 100;
+        }
+        #tutorial button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: #0f0;
+            color: #000;
+            border: none;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        #levelComplete {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            border: 2px solid #0f0;
+            padding: 20px;
+            max-width: 500px;
+            text-align: center;
+            z-index: 100;
+            display: none;
+        }
+        #levelComplete button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: #0f0;
+            color: #000;
+            border: none;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="hud">
+        HEALTH: <span id="health">100</span> | LEVEL: <span id="level">1</span>
+    </div>
+    <div id="inventory">
+        <div class="slot" data-slot="0">-</div>
+        <div class="slot" data-slot="1">-</div>
+        <div class="slot" data-slot="2">-</div>
+        <div class="slot" data-slot="3">-</div>
+    </div>
+    <button id="combineBtn" disabled>COMBINE (SPACE)</button>
+    
+    <div id="tutorial">
+        <h1>ZER0 MAYHEM</h1>
+        <p>Welcome to the year 2777. Earth is under attack by numerical machines from space.</p>
+        <p>As a cybernetic soldier, you must use numerical weapons to defeat them.</p>
+        <p>MECHANICS:</p>
+        <ul style="text-align: left;">
+            <li>WASD to move, mouse to aim and shoot</li>
+            <li>Collect numbers dropped by enemies</li>
+            <li>Combine two identical numbers to create a stronger weapon</li>
+            <li>You can only damage enemies with numbers equal or higher than theirs</li>
+            <li>Defeat the prime number bosses to advance</li>
+        </ul>
+        <p>Your mission starts now in the ruins of Rio de Janeiro.</p>
+        <button id="startBtn">BEGIN MISSION</button>
+    </div>
+    
+    <div id="levelComplete">
+        <h1>LEVEL COMPLETE</h1>
+        <p id="levelCompleteText"></p>
+        <button id="nextLevelBtn">CONTINUE</button>
+    </div>
+
+    <audio id="shootSound" src="data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU..."></audio>
+    <audio id="hitSound" src="data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU..."></audio>
+    <audio id="combineSound" src="data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU..."></audio>
+
+    <script>
+        // Game constants
+        const CANVAS_WIDTH = 800;
+        const CANVAS_HEIGHT = 600;
+        const PLAYER_SIZE = 30;
+        const ENEMY_SIZE = 25;
+        const BULLET_SIZE = 10;
+        const NUM_COLORS = {
+            2: '#00ff00',
+            4: '#ffff00',
+            8: '#ff9900',
+            16: '#ff0000',
+            32: '#ff00ff',
+            64: '#00ffff',
+            128: '#ffffff'
+        };
+        
+        // Game state
+        const gameState = {
+            player: {
+                x: CANVAS_WIDTH / 2,
+                y: CANVAS_HEIGHT / 2,
+                health: 100,
+                maxHealth: 100,
+                speed: 5,
+                lastShot: 0,
+                shootDelay: 300,
+                selectedSlot: 0,
+                invulnerable: false,
+                invulnerableTime: 0
+            },
+            inventory: [null, null, null, null],
+            bullets: [],
+            enemies: [],
+            drops: [],
+            level: 1,
+            enemiesToSpawn: 5,
+            enemiesDefeated: 0,
+            gameTime: 0,
+            lastEnemySpawn: 0,
+            enemySpawnDelay: 2000,
+            isPaused: true,
+            levelComplete: false,
+            tutorialComplete: false
+        };
+        
+        // DOM elements
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const healthDisplay = document.getElementById('health');
+        const levelDisplay = document.getElementById('level');
+        const inventorySlots = document.querySelectorAll('.slot');
+        const combineBtn = document.getElementById('combineBtn');
+        const tutorial = document.getElementById('tutorial');
+        const startBtn = document.getElementById('startBtn');
+        const levelComplete = document.getElementById('levelComplete');
+        const levelCompleteText = document.getElementById('levelCompleteText');
+        const nextLevelBtn = document.getElementById('nextLevelBtn');
+        
+        // Audio elements
+        const shootSound = document.getElementById('shootSound');
+        const hitSound = document.getElementById('hitSound');
+        const combineSound = document.getElementById('combineSound');
+        
+        // Initialize canvas
+        canvas.width = CANVAS_WIDTH;
+        canvas.height = CANVAS_HEIGHT;
+        
+        // Event listeners
+        startBtn.addEventListener('click', startGame);
+        nextLevelBtn.addEventListener('click', nextLevel);
+        
+        inventorySlots.forEach(slot => {
+            slot.addEventListener('click', () => {
+                const slotIndex = parseInt(slot.dataset.slot);
+                gameState.player.selectedSlot = slotIndex;
+                updateInventoryUI();
+            });
+        });
+        
+        combineBtn.addEventListener('click', combineItems);
+        
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && !gameState.isPaused) {
+                combineItems();
+            }
+        });
+        
+        // Game functions
+        function startGame() {
+            gameState.isPaused = false;
+            gameState.tutorialComplete = true;
+            tutorial.style.display = 'none';
+            spawnInitialEnemies();
+            
+            // Give player starting weapon
+            gameState.inventory[0] = { value: 2 };
+            updateInventoryUI();
+        }
+        
+        function nextLevel() {
+            gameState.level++;
+            gameState.enemiesDefeated = 0;
+            gameState.levelComplete = false;
+            levelComplete.style.display = 'none';
+            
+            // Increase difficulty
+            gameState.enemiesToSpawn = 5 + gameState.level * 2;
+            
+            // Spawn enemies for new level
+            spawnInitialEnemies();
+            
+            // Update UI
+            levelDisplay.textContent = gameState.level;
+        }
+        
+        function spawnInitialEnemies() {
+            gameState.enemies = [];
+            for (let i = 0; i < gameState.enemiesToSpawn; i++) {
+                spawnEnemy();
+            }
+        }
+        
+        function spawnEnemy() {
+            // Determine enemy value based on level
+            let value;
+            if (Math.random() < 0.1 && gameState.level > 3) {
+                // Chance for prime number boss
+                const primes = [3, 5, 7, 11, 13, 17, 19];
+                value = primes[Math.min(Math.floor(gameState.level / 2), primes.length - 1)];
+            } else {
+                // Regular enemy
+                const possibleValues = [2, 4, 8, 16].filter(v => v <= Math.pow(2, gameState.level + 1));
+                value = possibleValues[Math.floor(Math.random() * possibleValues.length)];
+            }
+            
+            // Spawn at edge of screen
+            let x, y;
+            if (Math.random() < 0.5) {
+                x = Math.random() < 0.5 ? 0 : CANVAS_WIDTH;
+                y = Math.random() * CANVAS_HEIGHT;
+            } else {
+                x = Math.random() * CANVAS_WIDTH;
+                y = Math.random() < 0.5 ? 0 : CANVAS_HEIGHT;
+            }
+            
+            gameState.enemies.push({
+                x: x,
+                y: y,
+                value: value,
+                health: value * 10,
+                maxHealth: value * 10,
+                speed: 1 + value / 8,
+                lastShot: 0,
+                shootDelay: 2000 - (value * 100)
+            });
+        }
+        
+        function updateInventoryUI() {
+            inventorySlots.forEach((slot, index) => {
+                const item = gameState.inventory[index];
+                slot.textContent = item ? item.value : '-';
+                slot.style.color = item ? NUM_COLORS[item.value] || '#ffffff' : '#0f0';
+                slot.classList.toggle('selected', index === gameState.player.selectedSlot);
+            });
+            
+            // Enable/disable combine button
+            const selectedItem = gameState.inventory[gameState.player.selectedSlot];
+            let canCombine = false;
+            
+            if (selectedItem) {
+                // Check if there's another item with the same value
+                for (let i = 0; i < gameState.inventory.length; i++) {
+                    if (i !== gameState.player.selectedSlot && 
+                        gameState.inventory[i] && 
+                        gameState.inventory[i].value === selectedItem.value) {
+                        canCombine = true;
+                        break;
+                    }
+                }
+            }
+            
+            combineBtn.disabled = !canCombine;
+        }
+        
+        function combineItems() {
+            const selectedSlot = gameState.player.selectedSlot;
+            const selectedItem = gameState.inventory[selectedSlot];
+            
+            if (!selectedItem) return;
+            
+            // Find another item with the same value
+            let combineIndex = -1;
+            for (let i = 0; i < gameState.inventory.length; i++) {
+                if (i !== selectedSlot && 
+                    gameState.inventory[i] && 
+                    gameState.inventory[i].value === selectedItem.value) {
+                    combineIndex = i;
+                    break;
+                }
+            }
+            
+            if (combineIndex === -1) return;
+            
+            // Play combine sound
+            combineSound.currentTime = 0;
+            combineSound.play();
+            
+            // Create new combined item
+            const newValue = selectedItem.value * 2;
+            let emptySlot = -1;
+            
+            // Find an empty slot for the new item
+            for (let i = 0; i < gameState.inventory.length; i++) {
+                if (!gameState.inventory[i]) {
+                    emptySlot = i;
+                    break;
+                }
+            }
+            
+            // If no empty slot, replace one of the combined items
+            if (emptySlot === -1) {
+                emptySlot = Math.random() < 0.5 ? selectedSlot : combineIndex;
+            }
+            
+            // Remove the combined items
+            gameState.inventory[selectedSlot] = null;
+            gameState.inventory[combineIndex] = null;
+            
+            // Add the new item
+            gameState.inventory[emptySlot] = { value: newValue };
+            
+            // Update UI
+            updateInventoryUI();
+        }
+        
+        function shoot(x, y, targetX, targetY, value, isPlayer = true) {
+            const angle = Math.atan2(targetY - y, targetX - x);
+            const speed = 10;
+            const vx = Math.cos(angle) * speed;
+            const vy = Math.sin(angle) * speed;
+            
+            gameState.bullets.push({
+                x: x,
+                y: y,
+                vx: vx,
+                vy: vy,
+                value: value,
+                isPlayer: isPlayer
+            });
+            
+            if (isPlayer) {
+                shootSound.currentTime = 0;
+                shootSound.play();
+            }
+        }
+        
+        function update(deltaTime) {
+            if (gameState.isPaused || gameState.levelComplete) return;
+            
+            gameState.gameTime += deltaTime;
+            
+            // Player movement
+            const moveX = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+            const moveY = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0);
+            
+            if (moveX !== 0 || moveY !== 0) {
+                const len = Math.sqrt(moveX * moveX + moveY * moveY);
+                const normX = moveX / len;
+                const normY = moveY / len;
+                
+                gameState.player.x += normX * gameState.player.speed;
+                gameState.player.y += normY * gameState.player.speed;
+                
+                // Boundary check
+                gameState.player.x = Math.max(PLAYER_SIZE / 2, Math.min(CANVAS_WIDTH - PLAYER_SIZE / 2, gameState.player.x));
+                gameState.player.y = Math.max(PLAYER_SIZE / 2, Math.min(CANVAS_HEIGHT - PLAYER_SIZE / 2, gameState.player.y));
+            }
+            
+            // Player shooting
+            if (mouse.isDown && gameState.gameTime - gameState.player.lastShot > gameState.player.shootDelay) {
+                const selectedWeapon = gameState.inventory[gameState.player.selectedSlot];
+                if (selectedWeapon) {
+                    shoot(
+                        gameState.player.x, 
+                        gameState.player.y, 
+                        mouse.x, 
+                        mouse.y, 
+                        selectedWeapon.value
+                    );
+                    gameState.player.lastShot = gameState.gameTime;
+                }
+            }
+            
+            // Update bullets
+            for (let i = gameState.bullets.length - 1; i >= 0; i--) {
+                const bullet = gameState.bullets[i];
+                bullet.x += bullet.vx;
+                bullet.y += bullet.vy;
+                
+                // Remove bullets that are off-screen
+                if (bullet.x < 0 || bullet.x > CANVAS_WIDTH || 
+                    bullet.y < 0 || bullet.y > CANVAS_HEIGHT) {
+                    gameState.bullets.splice(i, 1);
+                    continue;
+                }
+                
+                // Check for collisions
+                if (bullet.isPlayer) {
+                    // Player bullets hitting enemies
+                    for (let j = gameState.enemies.length - 1; j >= 0; j--) {
+                        const enemy = gameState.enemies[j];
+                        if (circleCollision(bullet.x, bullet.y, BULLET_SIZE / 2, 
+                                            enemy.x, enemy.y, ENEMY_SIZE / 2)) {
+                            // Can only damage if bullet value >= enemy value
+                            if (bullet.value >= enemy.value) {
+                                enemy.health -= bullet.value;
+                                hitSound.currentTime = 0;
+                                hitSound.play();
+                                
+                                if (enemy.health <= 0) {
+                                    // Enemy defeated
+                                    gameState.enemies.splice(j, 1);
+                                    gameState.enemiesDefeated++;
+                                    
+                                    // Drop number pickup
+                                    gameState.drops.push({
+                                        x: enemy.x,
+                                        y: enemy.y,
+                                        value: enemy.value,
+                                        time: 0
+                                    });
+                                    
+                                    // Check if level is complete
+                                    if (gameState.enemiesDefeated >= gameState.enemiesToSpawn) {
+                                        levelCompleteText.textContent = `Base ${gameState.level} secured. Ready for next deployment?`;
+                                        gameState.levelComplete = true;
+                                        levelComplete.style.display = 'block';
+                                    }
+                                }
+                            }
+                            
+                            gameState.bullets.splice(i, 1);
+                            break;
+                        }
+                    }
+                } else {
+                    // Enemy bullets hitting player
+                    if (!gameState.player.invulnerable && 
+                        circleCollision(bullet.x, bullet.y, BULLET_SIZE / 2, 
+                                        gameState.player.x, gameState.player.y, PLAYER_SIZE / 2)) {
+                        gameState.player.health -= bullet.value;
+                        gameState.player.invulnerable = true;
+                        gameState.player.invulnerableTime = gameState.gameTime + 1000;
+                        gameState.bullets.splice(i, 1);
+                        
+                        // Update health display
+                        healthDisplay.textContent = gameState.player.health;
+                        
+                        // Check for game over
+                        if (gameState.player.health <= 0) {
+                            gameOver();
+                        }
+                    }
+                }
+            }
+            
+            // Update enemies
+            for (let i = 0; i < gameState.enemies.length; i++) {
+                const enemy = gameState.enemies[i];
+                
+                // Move toward player
+                const angle = Math.atan2(gameState.player.y - enemy.y, gameState.player.x - enemy.x);
+                enemy.x += Math.cos(angle) * enemy.speed;
+                enemy.y += Math.sin(angle) * enemy.speed;
+                
+                // Enemy shooting
+                if (gameState.gameTime - enemy.lastShot > enemy.shootDelay) {
+                    shoot(
+                        enemy.x, 
+                        enemy.y, 
+                        gameState.player.x, 
+                        gameState.player.y, 
+                        enemy.value,
+                        false
+                    );
+                    enemy.lastShot = gameState.gameTime;
+                }
+            }
+            
+            // Spawn new enemies if needed
+            if (gameState.gameTime - gameState.lastEnemySpawn > gameState.enemySpawnDelay && 
+                gameState.enemies.length < gameState.enemiesToSpawn * 0.75) {
+                spawnEnemy();
+                gameState.lastEnemySpawn = gameState.gameTime;
+            }
+            
+            // Update drops
+            for (let i = gameState.drops.length - 1; i >= 0; i--) {
+                const drop = gameState.drops[i];
+                drop.time += deltaTime;
+                
+                // Check if player picks up drop
+                if (circleCollision(drop.x, drop.y, ENEMY_SIZE / 2, 
+                                    gameState.player.x, gameState.player.y, PLAYER_SIZE / 2)) {
+                    // Find empty inventory slot
+                    let emptySlot = -1;
+                    for (let j = 0; j < gameState.inventory.length; j++) {
+                        if (!gameState.inventory[j]) {
+                            emptySlot = j;
+                            break;
+                        }
+                    }
+                    
+                    // If no empty slot, replace selected slot
+                    if (emptySlot === -1) {
+                        emptySlot = gameState.player.selectedSlot;
+                    }
+                    
+                    // Add to inventory
+                    gameState.inventory[emptySlot] = { value: drop.value };
+                    gameState.drops.splice(i, 1);
+                    updateInventoryUI();
+                    continue;
+                }
+                
+                // Remove drops after some time
+                if (drop.time > 10000) {
+                    gameState.drops.splice(i, 1);
+                }
+            }
+            
+            // Player invulnerability
+            if (gameState.player.invulnerable && gameState.gameTime > gameState.player.invulnerableTime) {
+                gameState.player.invulnerable = false;
+            }
+        }
+        
+        function circleCollision(x1, y1, r1, x2, y2, r2) {
+            const dx = x1 - x2;
+            const dy = y1 - y2;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            return distance < r1 + r2;
+        }
+        
+        function gameOver() {
+            gameState.isPaused = true;
+            alert('SYSTEM FAILURE\nYou have been defeated.\nRefresh to try again.');
+        }
+        
+        function render() {
+            // Clear canvas
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            
+            // Draw drops
+            gameState.drops.forEach(drop => {
+                ctx.fillStyle = NUM_COLORS[drop.value] || '#ffffff';
+                ctx.beginPath();
+                ctx.arc(drop.x, drop.y, ENEMY_SIZE / 2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.fillStyle = '#000';
+                ctx.font = '16px Courier New';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(drop.value, drop.x, drop.y);
+            });
+            
+            // Draw bullets
+            gameState.bullets.forEach(bullet => {
+                ctx.fillStyle = bullet.isPlayer ? NUM_COLORS[bullet.value] || '#ffffff' : '#ff0000';
+                ctx.beginPath();
+                ctx.arc(bullet.x, bullet.y, BULLET_SIZE / 2, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            
+            // Draw enemies
+            gameState.enemies.forEach(enemy => {
+                // Enemy body
+                ctx.fillStyle = '#ff0000';
+                ctx.beginPath();
+                ctx.arc(enemy.x, enemy.y, ENEMY_SIZE / 2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Enemy value
+                ctx.fillStyle = '#000';
+                ctx.font = '16px Courier New';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(enemy.value, enemy.x, enemy.y);
+                
+                // Health bar
+                const healthPercent = enemy.health / enemy.maxHealth;
+                ctx.fillStyle = '#ff0000';
+                ctx.fillRect(enemy.x - ENEMY_SIZE / 2, enemy.y - ENEMY_SIZE / 2 - 10, 
+                            ENEMY_SIZE * healthPercent, 5);
+                ctx.strokeStyle = '#ffffff';
+                ctx.strokeRect(enemy.x - ENEMY_SIZE / 2, enemy.y - ENEMY_SIZE / 2 - 10, 
+                              ENEMY_SIZE, 5);
+            });
+            
+            // Draw player
+            if (!gameState.player.invulnerable || Math.floor(gameState.gameTime / 100) % 2 === 0) {
+                ctx.fillStyle = '#00ff00';
+                ctx.beginPath();
+                ctx.arc(gameState.player.x, gameState.player.y, PLAYER_SIZE / 2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Draw line showing direction
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(gameState.player.x, gameState.player.y);
+                const angle = Math.atan2(mouse.y - gameState.player.y, mouse.x - gameState.player.x);
+                ctx.lineTo(
+                    gameState.player.x + Math.cos(angle) * PLAYER_SIZE / 2,
+                    gameState.player.y + Math.sin(angle) * PLAYER_SIZE / 2
+                );
+                ctx.stroke();
+            }
+            
+            // Draw level info
+            ctx.fillStyle = '#0f0';
+            ctx.font = '20px Courier New';
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'top';
+            ctx.fillText(`ENEMIES: ${gameState.enemiesDefeated}/${gameState.enemiesToSpawn}`, CANVAS_WIDTH - 10, 10);
+            
+            // Draw selected weapon info
+            const selectedWeapon = gameState.inventory[gameState.player.selectedSlot];
+            if (selectedWeapon) {
+                ctx.textAlign = 'left';
+                ctx.fillText(`WEAPON: ${selectedWeapon.value}`, 10, 10);
+            }
+            
+            requestAnimationFrame(render);
+        }
+        
+        // Input handling
+        const keys = {
+            KeyW: false,
+            KeyA: false,
+            KeyS: false,
+            KeyD: false,
+            ArrowUp: false,
+            ArrowLeft: false,
+            ArrowDown: false,
+            ArrowRight: false
+        };
+        
+        const mouse = {
+            x: 0,
+            y: 0,
+            isDown: false
+        };
+        
+        document.addEventListener('keydown', (e) => {
+            if (keys.hasOwnProperty(e.code)) {
+                keys[e.code] = true;
+            }
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            if (keys.hasOwnProperty(e.code)) {
+                keys[e.code] = false;
+            }
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouse.x = e.clientX - rect.left;
+            mouse.y = e.clientY - rect.top;
+        });
+        
+        canvas.addEventListener('mousedown', () => {
+            mouse.isDown = true;
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            mouse.isDown = false;
+        });
+        
+        // Touch controls for mobile
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            mouse.isDown = true;
+            const rect = canvas.getBoundingClientRect();
+            mouse.x = e.touches[0].clientX - rect.left;
+            mouse.y = e.touches[0].clientY - rect.top;
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            mouse.x = e.touches[0].clientX - rect.left;
+            mouse.y = e.touches[0].clientY - rect.top;
+        });
+        
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            mouse.isDown = false;
+        });
+        
+        // Game loop
+        let lastTime = 0;
+        function gameLoop(timestamp) {
+            const deltaTime = timestamp - lastTime;
+            lastTime = timestamp;
+            
+            update(deltaTime);
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Start the game
+        render();
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
